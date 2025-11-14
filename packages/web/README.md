@@ -20,7 +20,13 @@ yarn add @lerobot/web
 ## Quick Start
 
 ```typescript
-import { findPort, releaseMotors, calibrate, teleoperate } from "@lerobot/web";
+import {
+  findPort,
+  releaseMotors,
+  calibrate,
+  teleoperate,
+  record,
+} from "@lerobot/web";
 
 // 1. find available robot ports (shows browser port dialog)
 console.log("🔍 finding available robot ports...");
@@ -387,72 +393,68 @@ await releaseMotors(robot, [1, 2, 3]);
 
 ---
 
-## Dataset Recording and Export
+### `record(config): Promise<RecordProcess>`
 
-The LeRobot.js library provides functionality to record teleoperator data and export it in the LeRobot dataset format, compatible with machine learning models.
-
-### `LeRobotDatasetRecorder`
-
-Records teleoperator movements and camera streams, then exports them in the LeRobot dataset format.
+Records robot motor positions and teleoperation data using a clean function API that matches the patterns established by `calibrate()` and `teleoperate()`.
 
 ```typescript
-import { LeRobotDatasetRecorder } from "@lerobot/web";
+import { teleoperate, record } from "@lerobot/web";
 
-// Create a recorder with teleoperator and video streams
-const recorder = new LeRobotDatasetRecorder(
-  [teleoperator],           // Array of teleoperators to record, currently only supports 1 teleoperator
-  { "main": videoStream },   // Video streams by camera key
-  30,                       // Target FPS
-  "Pick and place task"      // Task description
-);
-
-// Start recording
-await recorder.startRecording();
-
-// ... robot performs task ...
-
-// Stop recording and get the data
-const recordingData = await recorder.stopRecording();
-
-// Export the dataset in various formats
-// 1. As a downloadable zip file
-await recorder.exportForLeRobot('zip-download');
-
-// 2. Upload to Hugging Face
-const hfUploader = await recorder.exportForLeRobot('huggingface', {
-  repoName: 'my-robot-dataset',
-  accessToken: 'hf_...',
+// 1. Create teleoperation first
+const teleoperationProcess = await teleoperate({
+  robot: connectedRobot,
+  teleop: { type: "keyboard" },
+  calibrationData: calibrationData,
 });
 
-// 3. Upload to S3
-const s3Uploader = await recorder.exportForLeRobot('s3', {
-  bucketName: 'my-bucket',
-  accessKeyId: 'AKIA...',
-  secretAccessKey: '...',
-  region: 'us-east-1',
+// 2. Create recording with teleoperator
+const recordProcess = await record({
+  teleoperator: teleoperationProcess.teleoperator,
+  videoStreams: {
+    main: mainCameraStream,
+  },
+  robotType: "so100",
+  options: {
+    fps: 30,
+    taskDescription: "Pick and place task",
+  },
 });
+
+// 3. Start both processes
+teleoperationProcess.start();
+recordProcess.start();
+
+// 4. Manage recording during operation
+recordProcess.nextEpisode(); // Start new episode if needed
+
+// 5. Stop recording and export
+const robotData = await recordProcess.stop();
+await recordProcess.exportForLeRobot("zip-download");
 ```
 
-#### Key Features
+#### Options
 
-- **Multi-source Recording**: Records teleoperator movements and synchronized video
-- **Regular Interpolation**: Generates frames at consistent intervals with `episodes` getter
-- **Multiple Export Formats**: Supports local download, Hugging Face, and S3 upload
-- **LeRobot Dataset Format**: Follows the standard format for compatibility with ML models
+- `config: RecordConfig`
+  - `teleoperator: WebTeleoperator` - The teleoperator to record from
+  - `videoStreams?: { [name: string]: MediaStream }` - Optional camera streams (e.g., `{ main: stream1, wrist: stream2 }`)
+  - `robotType?: string` - Robot metadata (e.g., "so100")
+  - `options?: RecordOptions` - Optional recording configuration:
+    - `fps?: number` - Target frames per second (default: 30)
+    - `taskDescription?: string` - Task description
+    - `onStateUpdate?: (state: RecordingState) => void` - Recording state changes
 
-> **Note:** The dataset statistical data currently generated is incorrect and needs to be updated in a future release.
+#### Returns: `RecordProcess`
 
-#### Dataset Format
+- `start(): void` - Start recording
+- `stop(): Promise<RobotRecordingData>` - Stop recording and get data
+- `getState(): RecordingState` - Current recording state
+- `getEpisodeCount(): number` - Get total episodes
+- `nextEpisode(): Promise<number>` - Start new episode
+- `clearEpisodes(): void` - Delete all episodes
+- `addCamera(name: string, stream: MediaStream): void` - Add camera dynamically
+- `exportForLeRobot(format?: "blobs" | "zip" | "zip-download"): Promise<any>` - Export dataset
 
-The exported dataset follows the LeRobot format with this structure:
-
-```
-/data/chunk-000/file-000.parquet  # Teleoperator data
-/videos/observation.images.{camera-key}/chunk-000/file-000.mp4  # Video data
-/metadata.json  # Dataset metadata
-/statistics.json  # Dataset statistics (currently incorrect)
-/README.md  # Dataset documentation
-```
+---
 
 ## Browser Requirements
 
