@@ -1,5 +1,5 @@
 {
-  "name": "lerobot",
+  "name": "robot-trainer-lerobot-js",
   "version": "0.0.0",
   "description": "Control your robots with JS, inspired by LeRobot (python)",
   "type": "module",

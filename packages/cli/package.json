@@ -1,6 +1,6 @@
 {
-  "name": "lerobot",
-  "version": "0.3.3",
+  "name": "@robot-trainer/lerobotjs-cli",
+  "version": "v0.3.3",
   "description": "CLI for lerobot.js",
   "type": "module",
   "main": "./dist/index.js",
