@@ -30,6 +30,8 @@ jobs:
         with:
           node-version: 24
           cache: "pnpm"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@robot-trainer"
 
       - name: Install Dependencies
         # Changed to --frozen-lockfile for deterministic, safe release builds
@@ -40,7 +42,7 @@ jobs:
 
       - name: Publish to GitHub Packages
         # This publishes the actual packages so users can pnpm install them
-        run: pnpm -r publish --no-git-checks
+        run: pnpm -r publish --no-git-checks --registry https://npm.pkg.github.com
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
