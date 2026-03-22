@@ -859,22 +859,18 @@ export class LeRobotDatasetRecorder {
   _interpolateAndCompleteLerobotData(
     fps: number,
     frameData: NonIndexedLeRobotDatasetRow[],
-    lastFrameIndex: number
+    lastFrameIndex: number = 0
   ): LeRobotDatasetRow[] {
     const interpolatedData: LeRobotDatasetRow[] = [];
+    if (frameData.length === 0) return interpolatedData;
     const minTimestamp = frameData[0].timestamp;
     const maxTimestamp = frameData[frameData.length - 1].timestamp;
     const timeDifference = maxTimestamp - minTimestamp;
-    const numFrames = Math.floor(timeDifference * fps);
+    const numFrames = Math.max(1, Math.floor(timeDifference * fps));
     const firstFrame = frameData[0];
 
-    console.log(
-      "frames before interpolation",
-      numFrames,
-      frameData[0].timestamp,
-      frameData[frameData.length - 1].timestamp,
-      fps
-    );
+    let currentEpisodeIndex = firstFrame.episode_index;
+    let currentFrameIndex = 0;
 
     interpolatedData.push({
       timestamp: firstFrame.timestamp,
@@ -884,18 +880,18 @@ export class LeRobotDatasetRecorder {
       ),
       episode_index: firstFrame.episode_index,
       task_index: firstFrame.task_index,
-      frame_index: 0,
+      frame_index: currentFrameIndex,
       index: lastFrameIndex,
     });
 
     // start from 1 as the first frame is pushed already (see above)
     for (let i = 1; i < numFrames; i++) {
-      const timestamp = i / fps;
+      const timestamp = minTimestamp + i / fps;
       const closestIndex = this._findClosestTimestampBefore(
         frameData,
         timestamp
       );
-      const nextIndex = closestIndex + 1;
+      const nextIndex = Math.min(closestIndex + 1, frameData.length - 1);
       const closestItemData = frameData[closestIndex];
       const nextItemData = frameData[nextIndex];
       const action = this._actionInterpolatate(
@@ -913,13 +909,20 @@ export class LeRobotDatasetRecorder {
         timestamp
       );
 
+      if (closestItemData.episode_index !== currentEpisodeIndex) {
+        currentEpisodeIndex = closestItemData.episode_index;
+        currentFrameIndex = 0;
+      } else {
+        currentFrameIndex++;
+      }
+
       interpolatedData.push({
         timestamp: timestamp,
         action: this.convertActionToArray(action),
         "observation.state": this.convertActionToArray(observation_state),
         episode_index: closestItemData.episode_index,
         task_index: closestItemData.task_index,
-        frame_index: i,
+        frame_index: currentFrameIndex,
         index: lastFrameIndex + i,
       });
     }

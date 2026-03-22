@@ -3,6 +3,7 @@
  */
 
 import type { RobotConnection } from "./robot-connection.js";
+import type { CalibrationStep } from "../robots/robot.js";
 
 /**
  * Live calibration data with current positions and ranges
@@ -23,6 +24,7 @@ export interface CalibrateConfig {
   robot: RobotConnection;
   onLiveUpdate?: (data: LiveCalibrationData) => void;
   onProgress?: (message: string) => void;
+  waitForUserStep?: (stepIndex: number, step: CalibrationStep) => Promise<void>;
 }
 
 /**

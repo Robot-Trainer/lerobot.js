@@ -1,10 +1,3 @@
-/**
- * Web calibration functionality using Web Serial API
- * Simple library API - pass in robotConnection, get calibration results
- *
- * Handles different robot types internally - users don't need to know about configs
- */
-
 import { WebSerialPortWrapper } from "./utils/serial-port-wrapper.js";
 import {
   readAllMotorPositions,
@@ -23,12 +16,45 @@ import type {
   CalibrationProcess,
 } from "./types/calibration.js";
 
+import { Robot } from "./robots/robot.js";
+import { BiOpenarmFollowerConfig, BiOpenarmFollower } from "./robots/bi_openarm_follower.js";
+import { BiSoFollowerConfig, BiSoFollower } from "./robots/bi_so_follower.js";
+import { HopeJrConfig, HopeJr } from "./robots/hope_jr.js";
+import { KochFollowerConfig, KochFollower } from "./robots/koch_follower.js";
+import { LekiwiConfig, Lekiwi } from "./robots/lekiwi.js";
+import { OmxFollowerConfig, OmxFollower } from "./robots/omx_follower.js";
+import { OpenarmFollowerConfig, OpenarmFollower } from "./robots/openarm_follower.js";
+import { SoFollowerConfig, SoFollower } from "./robots/so_follower.js";
+
 // Re-export types for external use
 export type {
   CalibrationResults,
   LiveCalibrationData,
   CalibrationProcess,
 } from "./types/calibration.js";
+
+export function getRobotInstance(robotType: string): Robot | null {
+  switch (robotType) {
+    case "bi_openarm_follower":
+      return new BiOpenarmFollower(new BiOpenarmFollowerConfig());
+    case "bi_so_follower":
+      return new BiSoFollower(new BiSoFollowerConfig());
+    case "hope_jr":
+      return new HopeJr(new HopeJrConfig());
+    case "koch_follower":
+      return new KochFollower(new KochFollowerConfig());
+    case "lekiwi":
+      return new Lekiwi(new LekiwiConfig());
+    case "omx_follower":
+      return new OmxFollower(new OmxFollowerConfig());
+    case "openarm_follower":
+      return new OpenarmFollower(new OpenarmFollowerConfig());
+    case "so_follower":
+      return new SoFollower(new SoFollowerConfig());
+    default:
+      return null;
+  }
+}
 
 /**
  * Record ranges of motion with live updates
@@ -46,7 +72,6 @@ async function recordRangesOfMotion(
   const rangeMins: { [motor: string]: number } = {};
   const rangeMaxes: { [motor: string]: number } = {};
 
-  // Read actual current positions
   const startPositions = await readAllMotorPositions(port, motorIds);
 
   for (let i = 0; i < motorNames.length; i++) {
@@ -56,7 +81,6 @@ async function recordRangesOfMotion(
     rangeMaxes[motorName] = startPosition;
   }
 
-  // Recording loop
   while (!shouldStop()) {
     try {
       const positions = await readAllMotorPositions(port, motorIds);
@@ -73,7 +97,6 @@ async function recordRangesOfMotion(
         }
       }
 
-      // Call live update callback if provided
       if (onLiveUpdate) {
         const liveData: LiveCalibrationData = {};
         for (let i = 0; i < motorNames.length; i++) {
@@ -91,36 +114,22 @@ async function recordRangesOfMotion(
       // Continue recording despite errors
     }
 
-    // 20fps reading rate for stable Web Serial communication
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
   return { rangeMins, rangeMaxes };
 }
 
-/**
- * Apply robot-specific range adjustments
- * Different robot types may have special cases (like continuous rotation motors)
- */
 function applyRobotSpecificRangeAdjustments(
   robotType: string,
   protocol: { resolution: number },
   rangeMins: { [motor: string]: number },
   rangeMaxes: { [motor: string]: number }
 ): void {
-  // SO-100 specific: wrist_roll is a continuous rotation motor
   if (robotType.startsWith("so100") && rangeMins["wrist_roll"] !== undefined) {
-    // The wrist_roll is a continuous rotation motor that should use the full
-    // 0-4095 range regardless of what the user recorded during calibration.
     rangeMins["wrist_roll"] = 0;
     rangeMaxes["wrist_roll"] = protocol.resolution - 1;
   }
-
-  // Future robot types can add their own specific adjustments here
-  // if (robotType.startsWith('newrobot') && rangeMins["special_joint"] !== undefined) {
-  //   rangeMins["special_joint"] = 0;
-  //   rangeMaxes["special_joint"] = 2048;
-  // }
 }
 
 /**
@@ -129,23 +138,44 @@ function applyRobotSpecificRangeAdjustments(
 export async function calibrate(
   config: CalibrateConfig
 ): Promise<CalibrationProcess> {
-  const { robot, onLiveUpdate, onProgress } = config;
+  const { robot, onLiveUpdate, onProgress, waitForUserStep } = config;
 
-  // Validate required fields
   if (!robot.robotType) {
     throw new Error(
       "Robot type is required for calibration. Please configure the robot first."
     );
   }
 
-  // Create web serial port wrapper
+  // Interactive path if robust Robot class is matched
+  const robotInstance = getRobotInstance(robot.robotType);
+  if (robotInstance && waitForUserStep) {
+    let shouldStop = false;
+    const resultPromise = (async (): Promise<CalibrationResults> => {
+      onProgress?.("⚙️ Connecting to robot...");
+      await robotInstance.connect(false); 
+      
+      const results = await robotInstance.calibrate(waitForUserStep);
+      
+      onProgress?.("✅ Calibration finished.");
+      await robotInstance.disconnect();
+      return results;
+    })();
+
+    return {
+      stop: () => {
+        shouldStop = true;
+      },
+      result: resultPromise,
+    };
+  }
+
+  // Fallback to legacy calibration flow for SO100 backwards compatibility
   const port = new WebSerialPortWrapper(robot.port);
   await port.initialize();
 
-  // Get robot-specific configuration
   let robotConfig: RobotHardwareConfig;
   if (robot.robotType.startsWith("so100")) {
-    robotConfig = createSO100Config(robot.robotType);
+    robotConfig = createSO100Config(robot.robotType as any);
   } else {
     throw new Error(`Unsupported robot type: ${robot.robotType}`);
   }
@@ -153,9 +183,7 @@ export async function calibrate(
   let shouldStop = false;
   const stopFunction = () => shouldStop;
 
-  // Start calibration process
   const resultPromise = (async (): Promise<CalibrationResults> => {
-    // Step 1: Set homing offsets (automatic)
     onProgress?.("⚙️ Setting motor homing offsets");
     const homingOffsets = await setHomingOffsets(
       port,
@@ -163,7 +191,6 @@ export async function calibrate(
       robotConfig.motorNames
     );
 
-    // Step 2: Record ranges of motion with live updates
     const { rangeMins, rangeMaxes } = await recordRangesOfMotion(
       port,
       robotConfig.motorIds,
@@ -172,7 +199,6 @@ export async function calibrate(
       onLiveUpdate
     );
 
-    // Step 3: Apply robot-specific range adjustments
     applyRobotSpecificRangeAdjustments(
       robot.robotType!,
       robotConfig.protocol,
@@ -180,7 +206,6 @@ export async function calibrate(
       rangeMaxes
     );
 
-    // Step 4: Write hardware position limits to motors
     await writeHardwarePositionLimits(
       port,
       robotConfig.motorIds,
@@ -189,9 +214,7 @@ export async function calibrate(
       rangeMaxes
     );
 
-    // Step 5: Compile results
     const results: CalibrationResults = {};
-
     for (let i = 0; i < robotConfig.motorNames.length; i++) {
       const motorName = robotConfig.motorNames[i];
       const motorId = robotConfig.motorIds[i];
@@ -208,7 +231,6 @@ export async function calibrate(
     return results;
   })();
 
-  // Return control object
   return {
     stop: () => {
       shouldStop = true;
