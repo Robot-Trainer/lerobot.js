@@ -1,11 +1,10 @@
 {
   "name": "@robot-trainer/lerobotjs-web",
-  "version": "v0.5.5",
+  "version": "v0.5.6",
   "description": "Web-based robotics control using WebSerial API",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "packageManager": "pnpm@10.32.1",
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -49,6 +48,7 @@
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
+    "@vitest/coverage-v8": "2.1.9",
     "@vitest/ui": "^2.1.9",
     "eslint": "^8.0.0",
     "jsdom": "^24.1.3",

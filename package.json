@@ -56,5 +56,6 @@
   "author": "Tim Pietrusky",
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "packageManager": "pnpm@10.32.1"
 }
